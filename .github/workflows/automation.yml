@@ -1,0 +1,39 @@
+name: Automation Prototype
+
+on:
+  push:
+    branches:
+      - master
+      - feature/**
+  pull_request:
+
+jobs:
+  unit-tests:
+    name: Unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+      - name: Run automation unit tests
+        run: python -m unittest
+
+  pipeline-plan:
+    name: Render pipeline plan
+    runs-on: ubuntu-latest
+    needs: unit-tests
+    strategy:
+      matrix:
+        flavor: [dev, stg, prod]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+      - name: Print pipeline plan
+        run: python -m automation.cli --flavors ${{ matrix.flavor }} --sha ${{ github.sha }}
