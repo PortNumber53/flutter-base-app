@@ -1,0 +1,796 @@
+# **PRD: Modular Flutter Wrapper App with Gated Features**
+
+**Doc Owner:**  
+ **Version:** 1.0  
+ **Last Updated:** October 29, 2025
+
+---
+
+## **1\) Summary**
+
+Build a **Flutter “wrapper” app** that ships a set of **modular features** (modules) which can be **shown/hidden or enabled/disabled** at runtime using **feature flags** and **entitlements**. The goal is to enable rapid creation of custom apps by composing modules, applying brand/theme, and turning features on/off per **environment**, **organization**, **plan (SKU)**, **role**, and **user**—without recompiling the app (within platform policy limits).
+
+---
+
+## **2\) Goals & Non‑Goals**
+
+### **Goals**
+
+* Provide a **shell app** capable of:
+
+  * Discovering and registering **modules** at compile time.
+
+  * **Gating** routes/widgets/buttons via feature flags and entitlements.
+
+  * **White‑label configuration** (name, icons, colors, typography, copy).
+
+  * **Config-driven navigation** (tabs/drawer/stack) based on enabled modules.
+
+  * **Analytics & logging** instrumentation with consistent event schema.
+
+  * **Multi-tenancy** support (org-level config).
+
+  * **Remote config** with local fallback for offline/first run.
+
+* Enable **rapid customization** to produce client-specific apps by (a) providing a config file, (b) toggling features, (c) swapping visuals.
+
+### **Non‑Goals**
+
+* **Dynamic code push** or downloading executable code/plugins at runtime (disallowed on iOS and out of scope).
+
+* Full CMS or headless backend design—this PRD defines minimum API contracts for flags/entitlements/config.
+
+---
+
+## **3\) Target Users / Personas**
+
+* **Org Admin**: Manages users, roles, and purchased features (plans). Needs admin screens.
+
+* **Member/Employee**: Uses app modules (e.g., dashboard, forms, chat).
+
+* **Guest**: Minimal access; sees login/onboarding only.
+
+* **App Ops**: Manages flags, rollouts, and crash/analytics dashboards.
+
+---
+
+## **4\) Success Metrics**
+
+* **TTV (Time-to-Variant)**: \< 1 day to ship a new white‑label with existing modules.
+
+* **No‑code config coverage**: ≥ 90% of branding and navigation driven by config.
+
+* **Runtime gating latency**: feature check ≤ 10ms (cached).
+
+* **Crash-free sessions**: ≥ 99.8%.
+
+* **Cold start** (release build mid-range device): ≤ 2.2s.
+
+* **App size impact per module**: ≤ 2.5 MB (Android AAB split; iOS measured uncompressed).
+
+---
+
+## **5\) Release Scope (MVP)**
+
+* Shell app \+ module registry
+
+* Modules (MVP set):
+
+  * **Auth** (email/OIDC)
+
+  * **Home** (cards, announcements)
+
+  * **Content** (list/detail)
+
+  * **Forms** (simple data capture)
+
+  * **Support/Chat** (stub with provider abstraction)
+
+  * **Settings** (profile, org switch, theme toggle)
+
+* Gating:
+
+  * **Feature flags** (kill switches, rollout, visibility)
+
+  * **Entitlements** (plan/role/user)
+
+* Config:
+
+  * App/theme/branding
+
+  * Navigation layout (tabs or drawer)
+
+  * Module enablement per environment
+
+* Analytics: screen view \+ action events
+
+* Error handling \+ offline cache of config & flags
+
+* CI/CD with flavors (dev, staging, prod)
+
+---
+
+## **6\) Architecture Overview**
+
+* **Flutter** (stable channel), **Dart** null-safety.
+
+* **State mgmt**: **Riverpod** (or Provider; choose one—default Riverpod).
+
+* **Navigation**: `go_router` with guarded routes.
+
+* **HTTP**: `dio` (retry \+ interceptors).
+
+* **Storage**: `shared_preferences` (light), `hive` or `sqflite` (cache).
+
+* **Remote Config**: pluggable provider (e.g., Firebase Remote Config or custom `/config` API).
+
+* **Analytics**: pluggable (Firebase Analytics/Segment/Amplitude).
+
+* **Theming**: token-based (light/dark), passed via `ThemeData`.
+
+* **Modularity**: each module is a **Dart package** under `/packages`, registered via a **ModuleRegistry** at app start.
+
+* **Gating**: central **FeatureGate** service evaluating (flags ⟶ entitlements ⟶ local fallbacks).
+
+---
+
+## **7\) Project Structure**
+
+`apps/`  
+  `wrapper_app/`  
+    `lib/`  
+      `main.dart`  
+      `app_shell.dart`  
+      `di_container.dart`  
+      `router.dart`  
+      `feature_gate.dart`  
+      `module_registry.dart`  
+      `theme_loader.dart`  
+      `analytics.dart`  
+      `config_loader.dart`  
+    `assets/`  
+      `config/`  
+        `app_config.dev.json`  
+        `app_config.stg.json`  
+        `app_config.prod.json`  
+      `themes/`  
+        `default_theme.json`  
+    `android/...`  
+    `ios/...`  
+`packages/`  
+  `core/                   # shared types, guards, UI kit, network`  
+  `module_auth/`  
+  `module_home/`  
+  `module_content/`  
+  `module_forms/`  
+  `module_support/`  
+  `module_settings/`  
+  `module_sdk/             # Module interface + annotations`
+
+---
+
+## **8\) Module SDK Contract**
+
+**Goal:** Define a consistent way for modules to declare their metadata, routes, and gates.
+
+`// packages/module_sdk/lib/module_descriptor.dart`  
+`abstract class ModuleDescriptor {`  
+  `String get id;               // e.g., "auth", "home"`  
+  `String get version;          // semver`  
+  `String get displayName;      // for UI`  
+  `List<RouteDefinition> get routes;  // guarded routes`  
+  `List<MenuEntry> get navigation;    // tab/drawer items`  
+  `List<FeatureKey> get requiredFeatures; // module-level gates`  
+  `Future<void> initialize(ModuleContext ctx);`  
+`}`
+
+`class RouteDefinition {`  
+  `final String route;          // e.g., "/forms"`  
+  `final WidgetBuilder builder;`  
+  `final List<FeatureKey> gates; // features required to access this route`  
+  `const RouteDefinition({required this.route, required this.builder, this.gates = const []});`  
+`}`
+
+`typedef FeatureKey = String;   // e.g., "forms.submit", "chat.view"`
+
+`class MenuEntry {`  
+  `final String label;`  
+  `final String route;`  
+  `final String iconName;       // maps to Material icon`  
+  `final List<FeatureKey> gates;`   
+  `const MenuEntry({required this.label, required this.route, required this.iconName, this.gates = const []});`  
+`}`
+
+`class ModuleContext {`  
+  `final Reader read;            // Riverpod`  
+  `final FeatureGate gate;       // feature checks`  
+  `final Analytics analytics;    // event dispatch`  
+  `// add: localization, theme tokens, etc.`  
+`}`
+
+**Registration:**
+
+`// apps/wrapper_app/lib/module_registry.dart`  
+`final List<ModuleDescriptor> kModules = [`  
+  `AuthModule(),`  
+  `HomeModule(),`  
+  `ContentModule(),`  
+  `FormsModule(),`  
+  `SupportModule(),`  
+  `SettingsModule(),`  
+`];`
+
+Modules are **compiled into the binary**. Gating controls visibility and access—no dynamic code download.
+
+---
+
+## **9\) Feature Gating Model**
+
+### **9.1 Definitions**
+
+* **Feature Flag (FF):** Boolean/variant allowing kill switch, staged rollout, or UI visibility.
+
+* **Entitlement:** Permission to use a capability based on **plan**, **role**, **org**, **user**.
+
+* **Required Feature Key:** String key associated to a route/widget.
+
+### **9.2 Evaluation Order (highest precedence first)**
+
+1. **Emergency kill switch** (FF \= off) → deny.
+
+2. **User override** (allow/deny) → apply.
+
+3. **Role-based entitlement** → allow/deny.
+
+4. **Plan/SKU entitlement** → allow/deny.
+
+5. **Org default** → allow/deny.
+
+6. **Feature flag default & local fallback** → allow/deny.
+
+### **9.3 Data Sources**
+
+* **Remote Config**: `/feature-flags` (keys \+ values, rollout rules).
+
+* **Entitlements API**: `/me/entitlements` (scoped to org).
+
+* **Local Cache**: persisted snapshot (TTL configurable).
+
+### **9.4 Guarding APIs (Dart)**
+
+`abstract class FeatureGate {`  
+  `bool can(String featureKey);                   // synchronous cached check`  
+  `Stream<void> get onChanged;                    // notify to rebuild UI`  
+`}`
+
+`class Guarded extends StatelessWidget {`  
+  `final String featureKey;`  
+  `final Widget child;`  
+  `final Widget? fallback; // e.g., upsell or 404`  
+  `// build shows child if gate.can(featureKey) else fallback`  
+`}`
+
+`GoRoute guardedRoute(String path, WidgetBuilder builder, List<String> gates) {`  
+  `return GoRoute(`  
+    `path: path,`  
+    `redirect: (ctx, state) {`  
+      `final gate = ctx.read(featureGateProvider);`  
+      `final ok = gates.every(gate.can);`  
+      `return ok ? null : "/not-authorized";`  
+    `},`  
+    `builder: (_, __) => builder(_),`  
+  `);`  
+`}`
+
+---
+
+## **10\) Navigation**
+
+Config-driven **tabs** or **drawer**:
+
+* **Tabs**: up to 5 primary entries; overflow routes accessible via “More”.
+
+* **Drawer**: unlimited sections; shows only entries passing gate checks.
+
+* Modules contribute **MenuEntry** objects; the shell **filters** by gate and assembles the nav.
+
+---
+
+## **11\) Configuration**
+
+### **11.1 App Config (per environment)**
+
+`{`  
+  `"app_id": "com.company.wrapper",`  
+  `"app_name": "Wrapper App",`  
+  `"env": "prod",`  
+  `"api_base_url": "https://api.example.com",`  
+  `"remote_config_url": "https://api.example.com/config",`  
+  `"navigation": {`  
+    `"layout": "tabs",`   
+    `"order": ["home", "content", "forms", "support", "settings"]`  
+  `},`  
+  `"modules": {`  
+    `"auth": { "enabled": true },`  
+    `"home": { "enabled": true },`  
+    `"content": { "enabled": true },`  
+    `"forms": { "enabled": true },`  
+    `"support": { "enabled": false },`  
+    `"settings": { "enabled": true }`  
+  `},`  
+  `"features": {`  
+    `"forms.submit": { "default": true },`  
+    `"chat.view": { "default": false },`  
+    `"chat.reply": { "default": false }`  
+  `},`  
+  `"theme": "default_theme.json"`  
+`}`
+
+### **11.2 Theme Tokens (JSON)**
+
+`{`  
+  `"brand": {`  
+    `"primary": "#2B6CB0",`  
+    `"secondary": "#2C5282",`  
+    `"accent": "#ED8936"`  
+  `},`  
+  `"typography": {`  
+    `"fontFamily": "Inter",`  
+    `"scale": { "baseSize": 14 }`  
+  `},`  
+  `"shapes": { "radius": 10 },`  
+  `"darkMode": { "enabled": true, "primary": "#90CAF9" }`  
+`}`
+
+---
+
+## **12\) Data Model (Key Types)**
+
+`// FeatureFlag`  
+`{`  
+  `"key": "chat.view",`  
+  `"type": "boolean",`  
+  `"value": true,`  
+  `"rules": [`  
+    `{ "if": { "orgId": "org_123" }, "value": false },`  
+    `{ "if": { "percent": 10 }, "value": true } // rollout`  
+  `],`  
+  `"updatedAt": "2025-10-01T12:00:00Z"`  
+`}`
+
+`// Entitlement`  
+`{`  
+  `"userId": "u_1",`  
+  `"orgId": "org_123",`  
+  `"plan": "pro",`  
+  `"roles": ["admin", "member"],`  
+  `"features": {`  
+    `"chat.view": "allow",`  
+    `"chat.reply": "deny"`  
+  `}`  
+`}`
+
+`// ModuleDescriptor manifest (derived)`  
+`{`  
+  `"id": "forms",`  
+  `"version": "1.2.0",`  
+  `"routes": ["/forms", "/forms/new"],`  
+  `"featureKeys": ["forms.view", "forms.submit"]`  
+`}`
+
+---
+
+## **13\) Minimal API Contracts (Example)**
+
+* `POST /auth/login` → `{ token, user, orgs }`
+
+* `GET /users/me` → `{ id, email, name, orgs[], roles[] }`
+
+* `GET /orgs/:id/entitlements` → `{ plan, roles[], features{key: allow|deny} }`
+
+* `GET /feature-flags` → `{ flags[] }`
+
+* `GET /config` → `{ navigation, modules, features, theme }`
+
+* `GET /content` → list
+
+* `POST /forms/:id/submit` → `{ status }`
+
+All responses include `etag`/`last-modified` for caching. Auth via **OIDC bearer JWT**.
+
+---
+
+## **14\) Security & Privacy**
+
+* **Auth**: OIDC/OAuth2, PKCE; refresh tokens stored in **secure storage**.
+
+* **JWT** validation in app (exp, iss, aud) \+ server-side authorization.
+
+* **PII**: minimize; encrypt at rest in local DB (if used).
+
+* **Logs**: scrub emails/ids; no secrets.
+
+* **Network**: TLS 1.2+; pinning optional via `dio` if required.
+
+* **Screenshots**: allow unless marked sensitive screens (flag).
+
+---
+
+## **15\) Offline & Caching**
+
+* Cache: config, flags, entitlements, last success responses (TTL 1 hour default).
+
+* Offline behavior:
+
+  * **Flags/Entitlements unavailable**: use last snapshot; if none, hide gated features by default and show upsell/placeholder.
+
+  * **Forms**: queue submissions with retry backoff.
+
+* Show **offline banner** with retry action.
+
+---
+
+## **16\) Analytics & Telemetry**
+
+* **Common event schema**: `app_id`, `org_id`, `user_id`, `screen`, `route`, `feature_key`, `result`, `duration_ms`.
+
+* **Key events**:
+
+  * `screen_view`
+
+  * `feature_gate_check` (include key \+ verdict)
+
+  * `cta_tap` (`id`, `label`, `feature_key`)
+
+  * `form_submit` (`form_id`, `result`)
+
+  * `error_show` (`code`, `message_hash`)
+
+* Respect **opt-in** and regional privacy laws; disable tracking per config.
+
+---
+
+## **17\) Accessibility & Localization**
+
+* **A11y**: semantic labels, minimum tap size 48dp, dynamic type, contrast ≥ 4.5:1.
+
+* **Localization**: ARB files per module; shell provides `intl` setup; fallback to English.
+
+---
+
+## **18\) Performance Budgets**
+
+* First meaningful paint ≤ 1.5s (warm) / 2.2s (cold).
+
+* Route change ≤ 300ms.
+
+* Memory footprint target ≤ 150MB on mid device while idle.
+
+* Jank \< 1% frames over 16ms (60Hz).
+
+---
+
+## **19\) Error Handling UX**
+
+* **Guard failures**: show `Not Authorized` screen with reason \+ upsell CTA if configured.
+
+* **Network**: show contextual retry; exponential backoff (100ms → 10s).
+
+* **Global error boundary**: capture and route to crash reporter.
+
+* **Module init failure**: soft-disable module, log event, show degraded nav.
+
+---
+
+## **20\) Build, Flavors, CI/CD**
+
+* Flavors: `dev`, `stg`, `prod` with matching config assets.
+
+* **CI**:
+
+  * Lint \+ `flutter analyze` \+ `flutter test --coverage`.
+
+  * Build AAB (Android) & IPA (iOS) with fastlane.
+
+  * Artifact names include git SHA \+ flavor.
+
+* **Config signing**: `remote_config_url` is environment-specific.
+
+---
+
+## **21\) Testing & QA**
+
+### **21.1 Unit**
+
+* FeatureGate evaluation (all precedence combinations).
+
+* Config loader \+ theme parser.
+
+* Route guards.
+
+### **21.2 Widget**
+
+* Guarded widgets (visible/hidden with mocks).
+
+* Navigation builds filtered by gates.
+
+### **21.3 Integration**
+
+* Login flow (OIDC mocked).
+
+* Offline-first startup with cached config.
+
+* Form submit retry.
+
+### **21.4 Golden Tests**
+
+* Themed screens (light/dark).
+
+### **21.5 Acceptance Criteria (MVP)**
+
+* Shell reads env config and boots with theme & nav.
+
+* Modules register and appear only when enabled & permitted.
+
+* Guarded routes block access and redirect with message.
+
+* Remote flag flips update UI **without restart**.
+
+* Offline startup works with last known config.
+
+* Analytics events fire for key actions.
+
+* A11y checks pass baseline.
+
+---
+
+## **22\) Risks & Mitigations**
+
+* **Platform policy** (no dynamic code load): compile all modules; use gating for exposure.
+
+* **Flag misconfigurations**: add preview banner & “effective gates” debug screen.
+
+* **Cold start time**: lazy-init modules; defer network calls; splash cache.
+
+* **Theme conflicts**: limit token surface; lint for missing tokens.
+
+* **Multi-tenant complexity**: enforce org scoping in every request; clear caches on org switch.
+
+---
+
+## **23\) Open Questions (Default Choices if Unanswered)**
+
+1. **Remote Config provider?** Default to REST `/config` \+ ETag (can swap to Firebase RC).
+
+2. **Analytics vendor?** Default to Firebase with abstraction to swap.
+
+3. **Chat provider?** Default to abstraction (no-op) with interface `ChatService`.
+
+4. **Payments/subscriptions?** Out of MVP; if needed, add IAP/Stripe server entitlements.
+
+---
+
+## **24\) UX Outline (MVP)**
+
+* **Launch** → Splash (loads config/flags) →
+
+  * If **unauth**: Auth module (Login, Org chooser\*)
+
+  * If **auth**: Home tab (cards; announcements)
+
+* **Tabs**: Home | Content | Forms | (Support\*) | Settings
+
+* **Settings**: Profile, Org switch, Theme, Legal
+
+* **Guarded surfaces**: Support tab (chat.view), Forms Submit (forms.submit)
+
+\* Only visible if gate passes.
+
+---
+
+## **25\) Example Configs**
+
+### **25.1 Feature Flags (server payload)**
+
+`{`  
+  `"flags": [`  
+    `{ "key": "chat.view", "value": true, "rules": [{ "if": {"orgId": "org_beta"}, "value": false }] },`  
+    `{ "key": "chat.reply", "value": false, "rules": [{ "if": {"role": "admin"}, "value": true }] },`  
+    `{ "key": "forms.submit", "value": true }`  
+  `],`  
+  `"updatedAt": "2025-10-29T10:00:00Z"`  
+`}`
+
+### **25.2 Entitlements (per user/org)**
+
+`{`  
+  `"userId": "u_42",`  
+  `"orgId": "org_alpha",`  
+  `"plan": "pro",`  
+  `"roles": ["member"],`  
+  `"features": {`  
+    `"chat.view": "allow",`  
+    `"chat.reply": "deny",`  
+    `"forms.submit": "allow"`  
+  `}`  
+`}`
+
+---
+
+## **26\) Sample Code Snippets**
+
+### **26.1 Route Guard**
+
+`final router = GoRouter(`  
+  `routes: [`  
+    `GoRoute(path: '/', builder: (_, __) => const ShellScreen()),`  
+    `// Module-provided:`  
+    `...kModules.expand((m) => m.routes.map((r) => guardedRoute(r.route, r.builder, r.gates)))`  
+  `],`  
+`);`
+
+### **26.2 Guarded Widget Usage**
+
+`Guarded(`  
+  `featureKey: "forms.submit",`  
+  `child: ElevatedButton(`  
+    `onPressed: () => ctx.read(formsController).submit(),`  
+    `child: const Text("Submit"),`  
+  `),`  
+  `fallback: TextButton(onPressed: () => _showUpsell(), child: const Text("Upgrade plan")),`  
+`)`
+
+### **26.3 Theme Loader (tokens → ThemeData)**
+
+`Future<ThemeData> loadThemeTokens(String path) async {`  
+  `final jsonStr = await rootBundle.loadString('assets/themes/$path');`  
+  `final map = json.decode(jsonStr);`  
+  `final primary = _parseColor(map["brand"]["primary"]);`  
+  `return ThemeData(`  
+    `colorScheme: ColorScheme.fromSeed(seedColor: primary),`  
+    `useMaterial3: true,`  
+  `);`  
+`}`
+
+---
+
+## **27\) Module Specs (MVP)**
+
+### **27.1 Auth Module**
+
+* **Screens**: Login, Register (optional), Org Picker.
+
+* **APIs**: `/auth/login`, `/users/me`.
+
+* **Gates**: none (always enabled when module enabled).
+
+* **Events**: `auth_login_success`, `auth_login_failure`.
+
+### **27.2 Home Module**
+
+* **Screens**: Home dashboard (cards).
+
+* **Gates**: `"home.view"` (default allow).
+
+* **Events**: `home_card_tap`.
+
+### **27.3 Content Module**
+
+* **Screens**: List, Detail.
+
+* **Gates**: `"content.view"`.
+
+* **APIs**: `/content`.
+
+* **Events**: `content_open`.
+
+### **27.4 Forms Module**
+
+* **Screens**: Forms list, Form detail, Submit.
+
+* **Gates**: `"forms.view"`, `"forms.submit"`.
+
+* **APIs**: `/forms/:id/submit`.
+
+* **Offline**: queue submissions.
+
+* **Events**: `form_submit`.
+
+### **27.5 Support/Chat Module**
+
+* **Screens**: Thread list, Thread detail.
+
+* **Gates**: `"chat.view"`, `"chat.reply"`.
+
+* **Provider**: `ChatService` interface (no-op default).
+
+* **Events**: `chat_message_send`.
+
+### **27.6 Settings Module**
+
+* **Screens**: Profile, Org switch, Theme, Legal, Debug gates (dev only).
+
+* **Gates**: `"settings.view"`.
+
+* **Events**: `settings_change_theme`.
+
+---
+
+## **28\) White‑Labeling**
+
+* App **name**, **icons**, **splash**, **theme tokens**, and **strings** loaded from config \+ assets.
+
+* Branding pack per client: `assets/brands/<client_id>/...` with symlink or build-time copy.
+
+* Build flavor picks brand pack \+ env config.
+
+---
+
+## **29\) Developer Experience**
+
+* **CLI Task** (optional future): `flutter pub run wrapper:new --brand=acme --modules=home,content,forms --plan=pro`
+
+* **Debug Screen**: shows **effective gates** for current user & org; allows toggling **local overrides** (dev only).
+
+---
+
+## **30\) Definition of Done (MVP)**
+
+* Builds & runs on iOS 15+ and Android 8+ (API 26).
+
+* All MVP modules compiled & registered.
+
+* Feature flags and entitlements shape access consistently across routes \+ widgets.
+
+* Config-only nav \+ theme works.
+
+* Offline startup & cached flags functional.
+
+* CI pipeline produces signed artifacts per flavor.
+
+* QA checklist passed (unit, widget, integration, goldens).
+
+* Minimal technical documentation (README \+ module guide).
+
+---
+
+## **31\) How to Add a New Module (Playbook)**
+
+1. `flutter create --template=package packages/module_<name>`
+
+2. Implement `ModuleDescriptor` with routes and gates.
+
+3. Export a `Module` class from the package.
+
+4. Add to `kModules` in `module_registry.dart`.
+
+5. Add feature keys to `/feature-flags` and entitlements mapping.
+
+6. Update navigation order in `app_config.<env>.json`.
+
+7. Write unit/widget tests \+ golden snapshot for its main screen.
+
+8. Update analytics map with events.
+
+---
+
+## **32\) Appendix: Example Upsell Flow**
+
+* If user hits a denied route:
+
+  * Show `Not Authorized` screen with:
+
+    * Feature name, reason (no entitlement / flag off / plan mismatch).
+
+    * **CTA**: “Contact admin” or “Upgrade plan” → deep link `myapp://billing`.
+
+---
+
+## **33\) Glossary**
+
+* **Gate**: A rule that decides if a user can see/use a feature.
+
+* **Entitlement**: Permission derived from plan/role/user.
+
+* **Flag**: Toggle used to alter app behavior at runtime.
+
