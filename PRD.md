@@ -50,7 +50,9 @@ Build a **Flutter “wrapper” app** that ships a set of **modular features** (
 
 * **Guest**: Minimal access; sees login/onboarding only.
 
-* **App Ops**: Manages flags, rollouts, and crash/analytics dashboards.
+* **App Ops**: Manages build pipeline, feature flags, and crash/analytics dashboards.
+
+* **Admin Dashboard User**: Manages feature flags and gated features through the **Admin Dashboard** (see Section 9.5).
 
 ---
 
@@ -252,6 +254,8 @@ Modules are **compiled into the binary**. Gating controls visibility and access�
 
 * **Remote Config**: `/feature-flags` (keys \+ values, rollout rules).
 
+* **Admin Dashboard**: Web-based interface for managing feature flags (see Section 9.5).
+
 * **Entitlements API**: `/me/entitlements` (scoped to org).
 
 * **Local Cache**: persisted snapshot (TTL configurable).
@@ -280,6 +284,60 @@ Modules are **compiled into the binary**. Gating controls visibility and access�
     `},`  
     `builder: (_, __) => builder(_),`  
   `);`  
+`}`
+
+### **9.5 Admin Dashboard Workflow**
+
+Feature flags are **managed through an Admin Dashboard** and **baked into the app at build time**:
+
+**1. Admin Dashboard (Web Interface)**
+
+* **Purpose**: Enable/disable features for specific environments, organizations, plans, or users
+* **Audience**: Product managers, customer success, engineering leads
+* **Actions Available**:
+  * Toggle feature flags (on/off, percentage rollout)
+  * Define rollout rules (by org, plan, role, user)
+  * View feature usage metrics
+  * Schedule feature launches
+
+**2. Build-Time Config Fetch**
+
+During CI/CD pipeline execution, the automation system fetches the latest feature configuration from the Admin Dashboard API:
+
+```yaml
+# CI Pipeline Stage: fetch-config
+- name: Fetch Feature Configuration
+  run: |
+    python -m automation.config_fetcher \
+      --env ${FLAVOR} \
+      --api ${ADMIN_API_URL} \
+      --api-key ${ADMIN_API_KEY} \
+      --output apps/wrapper_app/assets/config/
+```
+
+This creates environment-specific config files embedded in the app binary.
+
+**3. Runtime Flow**
+
+```
+Admin Dashboard (Web)  →  Config API  →  Build Pipeline  →  App Binary
+     (write)                (read)         (embed)         (baked-in)
+```
+
+* **At Runtime**: App reads baked-in config first, then may fetch updates (if enabled)
+* **Offline**: Baked-in config guarantees app works without network
+* **Updates**: Remote config can override baked-in values for gradual rollout
+
+**Example Admin Dashboard Config Export:**
+
+`{`
+ `"environment": "prod",`
+ `"exportedAt": "2025-11-15T10:00:00Z",`
+ `"features": [`
+ `{ "key": "chat.view", "value": true, "rules": [...] },`
+ `{ "key": "forms.advanced", "value": false, "rules": [...] }`
+ `],`
+ `"signature": "sha256:abc123..."  # integrity check`
 `}`
 
 ---

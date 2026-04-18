@@ -47,9 +47,25 @@ def artifact_name(platform: str, flavor: str, sha: str) -> str:
     return f"wrapper-{flavor}-{sanitized_sha}.{ext}"
 
 
-def build_pipeline_plan(flavor: str, sha: str | None = None) -> PipelinePlan:
-    """Create the ordered pipeline plan for a single flavor."""
+def build_pipeline_plan(
+    flavor: str,
+    sha: str | None = None,
+    admin_api_url: str | None = None,
+    admin_api_key: str | None = None,
+) -> PipelinePlan:
+    """Create the ordered pipeline plan for a single flavor.
+    
+    Args:
+        flavor: Build flavor (dev, stg, prod)
+        sha: Git SHA for artifact naming (auto-detected if None)
+        admin_api_url: Admin Dashboard API URL for fetching config
+        admin_api_key: API key for Admin Dashboard authentication
+    """
     resolved_sha = sha or _current_git_sha()
+
+    # Config fetch requires API credentials
+    config_fetch_set = admin_api_url is not None and admin_api_key is not None
+
     verification_steps: Tuple[PipelineStep, ...] = (
         PipelineStep(
             label="format",
@@ -67,6 +83,37 @@ def build_pipeline_plan(flavor: str, sha: str | None = None) -> PipelinePlan:
             description="Run unit/widget tests with coverage.",
         ),
     )
+
+    # Config fetch step - fetches feature flags from Admin Dashboard
+    if config_fetch_set:
+        config_steps: Tuple[PipelineStep, ...] = (
+            PipelineStep(
+                label="fetch-config",
+                command=(
+                    "python",
+                    "-m",
+                    "automation.config_fetcher",
+                    "--env",
+                    flavor,
+                    "--api",
+                    admin_api_url,
+                    "--api-key",
+                    admin_api_key,
+                    "--output",
+                    "apps/wrapper_app/assets/config/",
+                ),
+                description="Fetch feature flags from Admin Dashboard API.",
+            ),
+        )
+    else:
+        config_steps = (
+            PipelineStep(
+                label="fetch-config-skipped",
+                command=("echo", "Skipping config fetch (no API credentials)"),
+                description="Config fetch skipped. Using local fallback config.",
+            ),
+        )
+
     android_steps: Tuple[PipelineStep, ...] = (
         PipelineStep(
             label="android-build",
@@ -99,6 +146,7 @@ def build_pipeline_plan(flavor: str, sha: str | None = None) -> PipelinePlan:
     )
     stages: Tuple[PipelineStage, ...] = (
         PipelineStage(name="verification", steps=verification_steps),
+        PipelineStage(name="config-fetch", steps=config_steps),
         PipelineStage(name="android", steps=android_steps),
         PipelineStage(name="ios", steps=ios_steps),
     )
