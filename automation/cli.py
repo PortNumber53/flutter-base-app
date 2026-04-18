@@ -118,13 +118,16 @@ def main(argv: Sequence[str] | None = None) -> int:
     
     # Handle subcommands
     if args.command == "config":
-        return config_fetcher_main([
-            "--env", args.env,
-            *("--api", args.api) if args.api else [],
-            *("--api-key", args.api_key) if args.api_key else [],
-            *("--output", args.output) if args.output else [],
-            *("--dry-run",) if args.dry_run else [],
-        ])
+        cmd_args = ["--env", args.env]
+        if args.api:
+            cmd_args.extend(["--api", args.api])
+        if args.api_key:
+            cmd_args.extend(["--api-key", args.api_key])
+        if args.output:
+            cmd_args.extend(["--output", args.output])
+        if args.dry_run:
+            cmd_args.append("--dry-run")
+        return config_fetcher_main(cmd_args)
     
     # Default: pipeline command
     flavors: Iterable[str] = args.flavors if args.flavors else DEFAULT_FLAVORS

@@ -290,6 +290,94 @@ Modules are **compiled into the binary**. Gating controls visibility and access�
 
 Feature flags are **managed through an Admin Dashboard** and **baked into the app at build time**:
 
+**Admin Dashboard Deployment Options:**
+
+| Mode | Description | Use Case |
+|------|-------------|-----------|
+| **Cloud-hosted** | SaaS dashboard with multi-tenant isolation | Production scale, multiple clients |
+| **Self-hosted** | Deployed in customer's infrastructure | Enterprise with data residency requirements |
+| **Offline/JSON** | Direct file-based config editing | Development, air-gapped environments |
+
+**Authentication Methods:**
+- OAuth 2.0 / OIDC for user login
+- API Keys for CI/CD automation
+- Service Account JWTs for cross-service auth
+
+### **9.6 Feature Flag Diff Tool**
+
+**Purpose:** Compare feature flag configurations between environments to catch drift and ensure consistency.
+
+**CLI Usage:**
+```bash
+# Compare dev vs prod
+python -m automation.diff --env1 dev --env2 prod
+
+# Compare with verbose output
+python -m automation.diff --env1 stg --env2 prod --verbose
+
+# Export diff to file
+python -m automation.diff --env1 dev --env2 prod --output diff_report.json
+```
+
+**Diff Output Format:**
+```json
+{
+  "compared_at": "2025-11-15T10:00:00Z",
+  "environment_1": "dev",
+  "environment_2": "prod",
+  "summary": {
+    "added_in_env2": ["forms.advanced"],
+    "removed_in_env2": ["debug.gates"],
+    "modified": ["chat.view"],
+    "same": ["forms.submit"]
+  },
+  "details": [
+    {
+      "key": "chat.view",
+      "env1_value": true,
+      "env2_value": false,
+      "env1_rules": [],
+      "env2_rules": [{"if": {"plan": "pro"}, "value": true}]
+    }
+  ]
+}
+```
+
+**CI/CD Integration:**
+```yaml
+- name: Check Feature Flag Drift
+  run: |
+    python -m automation.diff \
+      --env1 stg --env2 prod \
+      --fail-on-drift \
+      --allowed-drift-keys debug.*,beta.*
+```
+
+### **9.7 Rollout Strategies**
+
+**Supported Rollout Patterns:**
+
+| Strategy | Description | Configuration |
+|----------|-------------|---------------|
+ | **Percentage** | Gradual rollout by user % | `{"percent": 10}` |
+| **Canary** | Release to specific orgs/users first | `{"orgId": ["org_beta"]}` |
+| **Time-based** | Scheduled activation | `{"after": "2025-12-01T00:00:00Z"}` |
+| **User Segment** | Target by attributes | `{"role": "admin", "plan": "enterprise"}` |
+
+**Example Multi-Stage Rollout:**
+```json
+{
+  "key": "new_dashboard",
+  "value": false,
+  "rules": [
+    {"if": {"role": "internal"}, "value": true},
+    {"if": {"orgId": "pilot_corp"}, "value": true},
+    {"if": {"percent": 5}, "value": true},
+    {"if": {"after": "2025-12-01"}, "value": true}
+  ]
+}
+```
+
 **1. Admin Dashboard (Web Interface)**
 
 * **Purpose**: Enable/disable features for specific environments, organizations, plans, or users
@@ -554,6 +642,41 @@ All responses include `etag`/`last-modified` for caching. Auth via **OIDC bearer
 
 * **Config signing**: `remote_config_url` is environment-specific.
 
+### **20.2 Remote Config Synchronization**
+
+**Runtime Config Sync:**
+
+The app periodically fetches fresh configuration from the remote API to enable gradual rollouts and emergency feature toggles without app store updates.
+
+**Sync Strategy:**
+
+| Aspect | Behavior |
+|--------|----------|
+| **Initial Load** | Use baked-in config for instant startup |
+| **Background Sync** | Fetch after splash screen, every 15 min |
+| **Pull-to-Refresh** | Manual trigger in Settings > Debug |
+| **Update Handling** | Apply non-breaking changes immediately; prompt for restart if navigation structure changes |
+
+**Conflict Resolution:**
+```dart
+enum ConfigSource { bakedIn, cached, remote }
+
+class ConfigPriority {
+  // Remote > Cache > BakedIn (with freshness check)
+  static Config select(List<Config> configs) {
+    // Prefer remote if fetched within last hour
+    // Fallback to cache if remote failed
+    // Fallback to baked-in if nothing else available
+  }
+}
+```
+
+**Payload Optimization:**
+- ETag-based conditional requests (304 Not Modified)
+- Delta updates (only changed keys) for subsequent fetches
+- Brotli compression for reduced bandwidth
+- Config size target: < 50KB gzipped
+
 ---
 
 ## **21\) Testing & QA**
@@ -599,6 +722,64 @@ All responses include `etag`/`last-modified` for caching. Auth via **OIDC bearer
 * Analytics events fire for key actions.
 
 * A11y checks pass baseline.
+
+### **21.6 Entitlements Simulator**
+
+**Purpose:** Local tool for developers and QA to simulate different user/org/plan combinations without modifying backend data.
+
+**Features:**
+* **Persona Presets:** Quick switch between common user types:
+  - Free plan user
+  - Pro plan admin
+  - Enterprise member
+  - Guest/unauthenticated
+* **Custom Simulation:** Configure any combination of:
+  - Plan tier (free/pro/enterprise)
+  - Roles (admin/member/viewer)
+  - Organization ID
+  - Entitlements overrides
+* **Effective Permissions View:** See all resolved feature permissions for current simulation
+
+**CLI Usage:**
+```bash
+# List available personas
+python -m automation.simulate --list-personas
+
+# Simulate specific persona
+python -m automation.simulate --persona pro_admin
+
+# Custom simulation
+python -m automation.simulate \
+  --plan enterprise \
+  --roles admin,member \
+  --org-id org_test_123 \
+  --entitlements chat.view:true,forms.advanced:true
+
+# Export simulation config for sharing
+python -m automation.simulate --persona beta_user --export > ~/.config/wrapper_app/simulation.json
+```
+
+**Flutter Integration:**
+```dart
+// In dev builds only
+if (kDebugMode) {
+  SimulationOverlay(
+    child: MyApp(),
+    presets: [
+      SimulationPreset.freeUser,
+      SimulationPreset.proAdmin,
+      SimulationPreset.enterpriseMember,
+    ],
+  );
+}
+```
+
+**Effective Gates Debug Screen:**
+A developer-only screen showing:
+- Current simulation context (plan, role, org)
+- All feature flags with their resolved values
+- Reason for each decision (flag vs entitlement vs default)
+- Override toggles for testing edge cases
 
 ---
 
@@ -786,13 +967,233 @@ All responses include `etag`/`last-modified` for caching. Auth via **OIDC bearer
 
 ## **29\) Developer Experience**
 
-* **CLI Task** (optional future): `flutter pub run wrapper:new --brand=acme --modules=home,content,forms --plan=pro`
+### **29.1 Module Scaffolding CLI**
 
-* **Debug Screen**: shows **effective gates** for current user & org; allows toggling **local overrides** (dev only).
+**Purpose:** Generate new modules following the PRD specification with boilerplate, tests, and documentation.
+
+**CLI Usage:**
+```bash
+# Create new module with basic structure
+python -m automation.create-module --name module_blog
+
+# Create module with specific routes
+python -m automation.create-module \
+  --name module_analytics \
+  --routes "/analytics,/analytics/dashboard,/analytics/reports/:id" \
+  --gates "analytics.view,analytics.export"
+
+# Create module from template
+python -m automation.create-module \
+  --name module_polls \
+  --template form-module
+```
+
+**Generated Structure:**
+```
+packages/module_blog/
+├── lib/
+│   ├── module_blog.dart              # Public API
+│   ├── src/
+│   │   ├── blog_module.dart          # ModuleDescriptor impl
+│   │   ├── screens/
+│   │   │   ├── blog_list_screen.dart
+│   │   │   └── blog_detail_screen.dart
+│   │   ├── widgets/
+│   │   │   └── blog_card.dart
+│   │   └── services/
+│   │       └── blog_service.dart
+│   └── l10n/
+│       └── app_en.arb
+├── test/
+│   ├── blog_module_test.dart
+│   ├── screens/
+│   │   └── blog_list_screen_test.dart
+│   └── goldens/
+│       └── blog_list_screen.png
+├── README.md                         # Module documentation
+├── pubspec.yaml
+└── module_config.json                # Module metadata
+```
+
+**Module Template Options:**
+
+| Template | Description | Includes |
+|----------|-------------|----------|
+| `minimal` | Basic module shell | ModuleDescriptor, empty routes |
+| `list-detail` | CRUD pattern | List + Detail + Form screens |
+| `form-module` | Data capture | Form with validation, offline queue |
+| `content-module` | Display focused | Rich text, media, offline cache |
+| `integration` | External service | Service abstraction + provider |
+
+**Generated Code Example (module_blog.dart):**
+```dart
+import 'package:module_sdk/module_sdk.dart';
+
+/// Blog module for the wrapper app.
+/// 
+/// Generated by: automation.create-module
+/// Version: 1.0.0
+class BlogModule extends ModuleDescriptor {
+  @override
+  String get id => 'blog';
+
+  @override
+  String get version => '1.0.0';
+
+  @override
+  String get displayName => 'Blog';
+
+  @override
+  List<FeatureKey> get requiredFeatures => ['blog.view'];
+
+  @override
+  List<RouteDefinition> get routes => [
+    RouteDefinition(
+      route: '/blog',
+      builder: (_) => const BlogListScreen(),
+      gates: ['blog.view'],
+    ),
+    RouteDefinition(
+      route: '/blog/:id',
+      builder: (_) => const BlogDetailScreen(),
+      gates: ['blog.view'],
+    ),
+  ];
+
+  @override
+  List<MenuEntry> get navigation => [
+    MenuEntry(
+      label: 'Blog',
+      route: '/blog',
+      iconName: 'article',
+      gates: ['blog.view'],
+    ),
+  ];
+
+  @override
+  Future<void> initialize(ModuleContext ctx) async {
+    // Module initialization
+    ctx.analytics.track('blog_module_initialized');
+  }
+}
+```
+
+### **29.2 Debug Screen & Developer Tools**
+
+**Effective Gates Debug Screen:**
+
+Accessible via Settings > Developer (dev builds only) or shake gesture:
+
+```
+┌─────────────────────────────────────────┐
+│  Debug Panel - Effective Gates          │
+├─────────────────────────────────────────┤
+│  Simulation: ┌───────────┐              │
+│             │ Pro Admin ▼│             │
+│             └───────────┘              │
+├─────────────────────────────────────────┤
+│  Context:                               │
+│  • Plan: pro                            │
+│  • Role: admin                          │
+│  • Org: org_test_abc                    │
+├─────────────────────────────────────────┤
+│  Feature Flags:                         │
+│  ☑ chat.view       ✓ allow (flag)       │
+│  ☑ chat.reply      ✗ deny (role)        │
+│  ☑ forms.submit    ✓ allow (plan)       │
+│  ☐ forms.advanced  ✗ deny (flag)        │
+├─────────────────────────────────────────┤
+│  [Export Config] [Load Config] [Reset]  │
+└─────────────────────────────────────────┘
+```
+
+**Available Developer Tools:**
+
+| Tool | Purpose | Access |
+|------|---------|--------|
+| **Gate Explorer** | Browse all feature flags and their resolved values | Shake → Gates |
+| **Config Inspector** | View raw config JSON, diff vs baked-in | Debug menu |
+| **Network Logger** | HTTP request/response inspection | Shake → Network |
+| **Performance Overlay**| CPU/memory profiling | Shake → Perf |
+| **Route Debugger** | Navigate to any route directly | Shake → Routes |
+| **Theme Previewer** | Live theme token editing | Debug menu |
+
+**Local Overrides (Dev Only):**
+```dart
+// Toggle features locally for testing
+FeatureGate.override('forms.advanced', true);
+
+// Reset all overrides
+FeatureGate.clearOverrides();
+
+// Persist overrides across app restarts (dev only)
+FeatureGate.persistOverrides(true);
+```
+
+### **29.3 CLI Commands Reference**
+
+```bash
+# Pipeline
+python -m automation.cli pipeline --flavors dev stg prod
+python -m automation.cli pipeline --execute
+
+# Config
+python -m automation.cli config --env dev --api $API_URL
+python -m automation.config_fetcher --env prod --output ./config
+
+# Validation
+python -m automation.validate --config app_config.dev.json
+python -m automation.validate --all-environments --strict
+
+# Diff
+python -m automation.diff --env1 dev --env2 prod
+python -m automation.diff --env1 stg --env2 prod --fail-on-drift
+
+# Simulation
+python -m automation.simulate --persona pro_admin
+python -m automation.simulate --plan enterprise --roles admin
+
+# Module Scaffolding
+python -m automation.create-module --name module_chat
+python -m automation.create-module --name module_events --template list-detail
+
+# Mock Server
+python -m automation.mock_admin_server --port 8765 --verbose
+```
 
 ---
 
-## **30\) Definition of Done (MVP)**
+## **30\) Automation Tooling Summary**
+
+The automation package provides a complete toolchain for managing the wrapper app lifecycle:
+
+| Tool | File | Purpose | When to Use |
+|------|------|---------|-------------|
+| **Pipeline Planner** | `pipeline.py` | CI/CD stage orchestration | Build automation |
+| **Config Fetcher** | `config_fetcher.py` | Fetch feature flags from Admin Dashboard | Build time |
+| **Config Validator** | `validator.py` | Schema validation & linting | Pre-commit, CI |
+| **Diff Tool** | `diff.py` | Compare env configs | Deployment checks |
+| **Simulator** | `simulate.py` | Test user personas | Development, QA |
+| **Module Scaffolder** | `create_module.py` | Generate new modules | Feature development |
+| **Mock Server** | `mock_admin_server.py` | Local API testing | Development, CI |
+| **CLI** | `cli.py` | Unified command interface | Daily workflows |
+
+**Workflow Integration:**
+
+```mermaid
+graph LR
+    A[Developer] -->|git push| B[CI Pipeline]
+    B --> C[Validate Configs]
+    C -->|pass| D[Fetch Remote Config]
+    D --> E[Run Tests]
+    E -->|pass| F[Build Flavors]
+    F --> G[Deploy]
+    C -->|fail| H[Block Build]
+```
+
+---
+
+## **31\) Definition of Done (MVP)
 
 * Builds & runs on iOS 15+ and Android 8+ (API 26).
 
@@ -812,8 +1213,24 @@ All responses include `etag`/`last-modified` for caching. Auth via **OIDC bearer
 
 ---
 
-## **31\) How to Add a New Module (Playbook)**
+## **32\) How to Add a New Module (Playbook)**
 
+### **Quick Method (Using CLI):**
+```bash
+# Generate module with scaffolding
+python -m automation.create-module --name module_inventory --template list-detail
+
+# Validate the generated config
+python -m automation.validate --config packages/module_inventory/module_config.json
+
+# Add to registry and build
+cd apps/wrapper_app
+flutter pub add module_inventory --path ../../packages/module_inventory
+# Edit lib/module_registry.dart to add InventoryModule()
+flutter test
+```
+
+### **Manual Method:**
 1. `flutter create --template=package packages/module_<name>`
 
 2. Implement `ModuleDescriptor` with routes and gates.
@@ -830,9 +1247,20 @@ All responses include `etag`/`last-modified` for caching. Auth via **OIDC bearer
 
 8. Update analytics map with events.
 
+### **Verification Checklist:**
+- [ ] Module descriptor implements all required methods
+- [ ] Routes have appropriate gate declarations
+- [ ] Feature keys follow `module.action` naming
+- [ ] Unit tests for business logic
+- [ ] Widget tests for screens
+- [ ] Golden tests for visual regression
+- [ ] Localization strings in ARB files
+- [ ] README with usage examples
+- [ ] CI pipeline passes for all flavors
+
 ---
 
-## **32\) Appendix: Example Upsell Flow**
+## **33\) Appendix: Example Upsell Flow
 
 * If user hits a denied route:
 
@@ -844,7 +1272,37 @@ All responses include `etag`/`last-modified` for caching. Auth via **OIDC bearer
 
 ---
 
-## **33\) Glossary**
+## **34\) Appendix: Automation Configuration**
+
+### **Config File Discovery**
+
+The automation tools search for configuration in the following order:
+
+1. Environment variables (`WRAPPER_API_URL`, `WRAPPER_API_KEY`)
+2. `.env` file in project root
+3. `~/.config/wrapper_app/config.json`
+4. Command-line arguments
+
+### **Sample .env File:**
+```bash
+# Admin Dashboard API
+WRAPPER_ADMIN_API_URL=https://admin-api.example.com
+WRAPPER_ADMIN_API_KEY=your_api_key_here
+
+# Default environment
+WRAPPER_DEFAULT_ENV=dev
+
+# Simulation preset (for development)
+WRAPPER_SIMULATION_PRESET=pro_admin
+
+# CI/CD settings
+WRAPPER_FAIL_ON_DRIFT=true
+WRAPPER_ALLOWED_DRIFT_KEYS=debug.*,beta.*
+```
+
+---
+
+## **35\) Glossary
 
 * **Gate**: A rule that decides if a user can see/use a feature.
 
