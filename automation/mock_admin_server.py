@@ -133,7 +133,7 @@ def run_server(port: int = 8765) -> None:
     Args:
         port: Port to listen on (default: 8765)
     """
-    server = HTTPServer(("", port), MockAdminHandler)
+    server = HTTPServer(("127.0.0.1", port), MockAdminHandler)
     print(f"Mock Admin Dashboard API running on http://localhost:{port}")
     print(f"API Key: {MockAdminHandler.VALID_API_KEY}")
     print("Available environments: dev, stg, prod")

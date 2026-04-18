@@ -133,7 +133,6 @@ class ConfigValidator:
             result.add_error("'features' must be an object", path="features")
             return
 
-        seen_keys: set[str] = set()
         for key in features.keys():
             # Check format
             if not self.FEATURE_KEY_PATTERN.match(key):
@@ -141,11 +140,6 @@ class ConfigValidator:
                     f"Invalid feature key '{key}'. Expected format: module.action",
                     path=f"features.{key}"
                 )
-
-            # Check for duplicates
-            if key in seen_keys:
-                result.add_error(f"Duplicate feature key: {key}", path=f"features.{key}")
-            seen_keys.add(key)
 
             # Validate feature definition
             feature_def = features[key]

@@ -12,8 +12,8 @@ from automation.diff import (
     compare_configs,
     is_allowed_drift,
     load_config,
-    parse_entitlements,
 )
+from automation.simulate import parse_entitlements
 from automation.config_fetcher import ConfigExport, FeatureFlag
 
 

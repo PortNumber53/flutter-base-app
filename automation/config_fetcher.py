@@ -101,7 +101,7 @@ def fetch_config_from_api(
     Raises:
         ConfigFetchError: If the API request fails
     """
-    url = f"{api_url}/v1/config/{environment}"
+    url = f"{api_url.rstrip('/')}/v1/config/{environment}"
     
     request = urllib.request.Request(
         url,

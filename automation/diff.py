@@ -10,7 +10,7 @@ import argparse
 import fnmatch
 import json
 import sys
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Sequence
@@ -70,8 +70,8 @@ def load_config(config_path: Path | None, env: str) -> ConfigExport | None:
         ConfigExport or None if file not found
     """
     if config_path is None:
-        # Use mock data from config_fetcher
-        from .config_fetcher import MOCK_FEATURES
+        # Use mock data from mock_admin_server
+        from .mock_admin_server import MOCK_FEATURES
 
         features = [
             FeatureFlag.from_dict(f) for f in MOCK_FEATURES.get(env, [])
