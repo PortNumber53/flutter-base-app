@@ -29,8 +29,8 @@ class PipelinePlanTests(unittest.TestCase):
 
     def test_commands_include_expected_parameters(self) -> None:
         plan = pipeline.build_pipeline_plan("prod", sha="cafebabe")
-        android_command = plan.stages[3].steps[0].command
-        ios_command = plan.stages[4].steps[0].command
+        android_command = plan.stages[2].steps[0].command
+        ios_command = plan.stages[3].steps[0].command
 
         self.assertIn("flavor:prod", android_command)
         self.assertIn("output:wrapper-prod-cafebabe.aab", android_command)
