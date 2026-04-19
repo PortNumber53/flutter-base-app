@@ -25,12 +25,12 @@ class PipelinePlanTests(unittest.TestCase):
         self.assertEqual(plan.flavor, "stg")
         self.assertEqual(plan.sha, "deadbeef")
         stage_names = [stage.name for stage in plan.stages]
-        self.assertEqual(stage_names, ["verification", "android", "ios"])
+        self.assertEqual(stage_names, ["verification", "config-fetch", "android", "ios"])
 
     def test_commands_include_expected_parameters(self) -> None:
         plan = pipeline.build_pipeline_plan("prod", sha="cafebabe")
-        android_command = plan.stages[1].steps[0].command
-        ios_command = plan.stages[2].steps[0].command
+        android_command = plan.stages[2].steps[0].command
+        ios_command = plan.stages[3].steps[0].command
 
         self.assertIn("flavor:prod", android_command)
         self.assertIn("output:wrapper-prod-cafebabe.aab", android_command)

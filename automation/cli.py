@@ -6,7 +6,8 @@ import argparse
 import subprocess
 from typing import Iterable, Sequence
 
-from .pipeline import DEFAULT_FLAVORS, PipelinePlan, plan_for_flavors
+from .pipeline import DEFAULT_FLAVORS, PipelinePlan, build_pipeline_plan, plan_for_flavors
+from .config_fetcher import main as config_fetcher_main
 
 
 def render_plan(plan: PipelinePlan) -> str:
@@ -41,22 +42,112 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         help="Use a specific git SHA. Defaults to current HEAD.",
     )
     parser.add_argument(
+        "--admin-api-url",
+        help="Admin Dashboard API URL for fetching feature config.",
+    )
+    parser.add_argument(
+        "--admin-api-key",
+        help="API key for Admin Dashboard authentication.",
+    )
+    parser.add_argument(
         "--execute",
         action="store_true",
         help="Execute the commands sequentially instead of printing the plan.",
     )
+    
+    # Add subcommands
+    subparsers = parser.add_subparsers(dest="command", help="Available commands")
+    
+    # Pipeline subcommand (default behavior)
+    pipeline_parser = subparsers.add_parser("pipeline", help="Show pipeline plan")
+    pipeline_parser.add_argument(
+        "--flavors",
+        nargs="+",
+        help="Override flavors to plan (default: dev stg prod).",
+    )
+    pipeline_parser.add_argument(
+        "--sha",
+        help="Use a specific git SHA. Defaults to current HEAD.",
+    )
+    pipeline_parser.add_argument(
+        "--admin-api-url",
+        help="Admin Dashboard API URL.",
+    )
+    pipeline_parser.add_argument(
+        "--admin-api-key",
+        help="API key for Admin Dashboard.",
+    )
+    pipeline_parser.add_argument(
+        "--execute",
+        action="store_true",
+        help="Execute the pipeline commands.",
+    )
+    
+    # Config subcommand
+    config_parser = subparsers.add_parser("config", help="Fetch configuration")
+    config_parser.add_argument(
+        "--env",
+        required=True,
+        choices=["dev", "stg", "prod"],
+        help="Target environment",
+    )
+    config_parser.add_argument(
+        "--api",
+        help="Admin Dashboard API URL",
+    )
+    config_parser.add_argument(
+        "--api-key",
+        help="API key for authentication",
+    )
+    config_parser.add_argument(
+        "--output",
+        help="Output directory for config files",
+    )
+    config_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Show what would be written without writing",
+    )
+    
     return parser.parse_args(argv)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     """Entrypoint for the CLI."""
     args = _parse_args(argv)
+    
+    # Handle subcommands
+    if args.command == "config":
+        cmd_args = ["--env", args.env]
+        if args.api:
+            cmd_args.extend(["--api", args.api])
+        if args.api_key:
+            cmd_args.extend(["--api-key", args.api_key])
+        if args.output:
+            cmd_args.extend(["--output", args.output])
+        if args.dry_run:
+            cmd_args.append("--dry-run")
+        return config_fetcher_main(cmd_args)
+    
+    # Default: pipeline command
     flavors: Iterable[str] = args.flavors if args.flavors else DEFAULT_FLAVORS
-    plans = plan_for_flavors(tuple(flavors), sha=args.sha)
+    
+    # Build plans with optional config fetch
+    plans = [
+        build_pipeline_plan(
+            flavor,
+            sha=args.sha,
+            admin_api_url=args.admin_api_url,
+            admin_api_key=args.admin_api_key,
+        )
+        for flavor in flavors
+    ]
+    
     if args.execute:
         for plan in plans:
             _execute_plan(plan)
         return 0
+    
     for plan in plans:
         print(render_plan(plan))
     return 0
