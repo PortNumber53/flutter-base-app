@@ -3,8 +3,7 @@
 import json
 import tempfile
 from pathlib import Path
-
-import pytest
+import unittest
 
 from automation.create_module import (
     ModuleConfig,
@@ -17,36 +16,36 @@ from automation.create_module import (
 )
 
 
-class TestHelpers:
+class TestHelpers(unittest.TestCase):
     def test_to_pascal_case(self):
-        assert to_pascal_case("blog") == "Blog"
-        assert to_pascal_case("blog_post") == "BlogPost"
-        assert to_pascal_case("user_profile_settings") == "UserProfileSettings"
+        self.assertEqual(to_pascal_case("blog"), "Blog")
+        self.assertEqual(to_pascal_case("blog_post"), "BlogPost")
+        self.assertEqual(to_pascal_case("user_profile_settings"), "UserProfileSettings")
 
     def test_to_camel_case(self):
-        assert to_camel_case("blog") == "blog"
-        assert to_camel_case("blog_post") == "blogPost"
-        assert to_camel_case("user_profile") == "userProfile"
+        self.assertEqual(to_camel_case("blog"), "blog")
+        self.assertEqual(to_camel_case("blog_post"), "blogPost")
+        self.assertEqual(to_camel_case("user_profile"), "userProfile")
 
 
-class TestModuleConfig:
+class TestModuleConfig(unittest.TestCase):
     def test_module_id_extraction(self):
         config = ModuleConfig("module_blog", "minimal", [], [])
-        assert config.module_id == "blog"
+        self.assertEqual(config.module_id, "blog")
 
         config2 = ModuleConfig("blog", "minimal", [], [])
-        assert config2.module_id == "blog"
+        self.assertEqual(config2.module_id, "blog")
 
     def test_class_name_generation(self):
         config = ModuleConfig("module_blog_post", "minimal", [], [])
-        assert config.class_name == "BlogPostModule"
+        self.assertEqual(config.class_name, "BlogPostModule")
 
     def test_package_name(self):
         config = ModuleConfig("module_blog", "minimal", [], [])
-        assert config.package_name == "module_blog"
+        self.assertEqual(config.package_name, "module_blog")
 
 
-class TestGenerateModuleDescriptor:
+class TestGenerateModuleDescriptor(unittest.TestCase):
     def test_basic_descriptor(self):
         config = ModuleConfig(
             name="module_blog",
@@ -57,11 +56,11 @@ class TestGenerateModuleDescriptor:
 
         code = generate_module_descriptor(config)
 
-        assert "class BlogModule extends ModuleDescriptor" in code
-        assert "id => 'blog'" in code
-        assert "version => '1.0.0'" in code
-        assert "route: '/blog'" in code
-        assert "gates: ['blog.view']" in code
+        self.assertIn("class BlogModule extends ModuleDescriptor", code)
+        self.assertIn("id => 'blog'", code)
+        self.assertIn("version => '1.0.0'", code)
+        self.assertIn("route: '/blog'", code)
+        self.assertIn("gates: ['blog.view']", code)
 
     def test_empty_routes(self):
         config = ModuleConfig(
@@ -73,11 +72,11 @@ class TestGenerateModuleDescriptor:
 
         code = generate_module_descriptor(config)
 
-        assert "// Add routes here" in code
-        assert "// Add navigation entries here" in code
+        self.assertIn("// Add routes here", code)
+        self.assertIn("// Add navigation entries here", code)
 
 
-class TestGeneratePubspec:
+class TestGeneratePubspec(unittest.TestCase):
     def test_pubspec_generation(self):
         config = ModuleConfig(
             name="module_blog",
@@ -89,12 +88,12 @@ class TestGeneratePubspec:
 
         pubspec = generate_pubspec(config)
 
-        assert "name: module_blog" in pubspec
-        assert "version: 1.2.3" in pubspec
-        assert "module_sdk" in pubspec
+        self.assertIn("name: module_blog", pubspec)
+        self.assertIn("version: 1.2.3", pubspec)
+        self.assertIn("module_sdk", pubspec)
 
 
-class TestGenerateReadme:
+class TestGenerateReadme(unittest.TestCase):
     def test_readme_generation(self):
         config = ModuleConfig(
             name="module_blog",
@@ -105,13 +104,13 @@ class TestGenerateReadme:
 
         readme = generate_readme(config)
 
-        assert "# Blog Module" in readme
-        assert "/blog" in readme
-        assert "blog.view" in readme
-        assert "list-detail" in readme
+        self.assertIn("# Blog Module", readme)
+        self.assertIn("/blog", readme)
+        self.assertIn("blog.view", readme)
+        self.assertIn("list-detail", readme)
 
 
-class TestCreateModuleStructure:
+class TestCreateModuleStructure(unittest.TestCase):
     def test_dry_run(self):
         config = ModuleConfig(
             name="module_test",
@@ -125,8 +124,8 @@ class TestCreateModuleStructure:
             files = create_module_structure(config, output, dry_run=True)
 
             # Should return paths but not create files
-            assert len(files) > 0
-            assert not any(f.exists() for f in files)
+            self.assertTrue(len(files) > 0)
+            self.assertTrue(not any(f.exists() for f in files))
 
     def test_actual_creation(self):
         config = ModuleConfig(
@@ -141,24 +140,24 @@ class TestCreateModuleStructure:
             files = create_module_structure(config, output)
 
             # Should create files
-            assert len(files) > 0
-            assert all(f.exists() for f in files)
+            self.assertTrue(len(files) > 0)
+            self.assertTrue(all(f.exists() for f in files))
 
             # Check directory structure
             module_dir = output / "module_test"
-            assert module_dir.exists()
-            assert (module_dir / "pubspec.yaml").exists()
-            assert (module_dir / "README.md").exists()
-            assert (module_dir / "module_config.json").exists()
+            self.assertTrue(module_dir.exists())
+            self.assertTrue((module_dir / "pubspec.yaml").exists())
+            self.assertTrue((module_dir / "README.md").exists())
+            self.assertTrue((module_dir / "module_config.json").exists())
 
             # Check module_config.json
             with open(module_dir / "module_config.json") as f:
                 metadata = json.load(f)
-                assert metadata["name"] == "test"
-                assert metadata["class_name"] == "TestModule"
+            self.assertEqual(metadata["name"], "test")
+            self.assertEqual(metadata["class_name"], "TestModule")
 
 
-class TestIntegration:
+class TestIntegration(unittest.TestCase):
     def test_full_module_generation(self):
         """Test complete module generation flow."""
         config = ModuleConfig(
@@ -175,12 +174,16 @@ class TestIntegration:
 
             # Verify all expected files exist
             module_dir = output / "module_inventory"
-            assert (module_dir / "lib" / "src" / "inventory_module.dart").exists()
+            self.assertTrue((module_dir / "lib" / "src" / "inventory_module.dart").exists())
 
             # Verify the module descriptor
             descriptor_path = module_dir / "lib" / "src" / "inventory_module.dart"
             with open(descriptor_path) as f:
                 content = f.read()
-                assert "InventoryModule" in content
-                assert "/inventory" in content
-                assert "inventory.view" in content
+            self.assertIn("InventoryModule", content)
+            self.assertIn("/inventory", content)
+            self.assertIn("inventory.view", content)
+
+
+if __name__ == "__main__":
+    unittest.main()

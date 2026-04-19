@@ -3,8 +3,7 @@
 import json
 import tempfile
 from pathlib import Path
-
-import pytest
+import unittest
 
 from automation.diff import (
     DiffReport,
@@ -17,7 +16,7 @@ from automation.simulate import parse_entitlements
 from automation.config_fetcher import ConfigExport, FeatureFlag
 
 
-class TestFeatureDiff:
+class TestFeatureDiff(unittest.TestCase):
     def test_feature_diff_creation(self):
         diff = FeatureDiff(
             key="test.feature",
@@ -26,12 +25,12 @@ class TestFeatureDiff:
             env1_rules=[],
             env2_rules=[{"if": {"plan": "pro"}, "value": True}],
         )
-        assert diff.key == "test.feature"
-        assert diff.env1_value is True
-        assert diff.env2_value is False
+        self.assertEqual(diff.key, "test.feature")
+        self.assertTrue(diff.env1_value)
+        self.assertFalse(diff.env2_value)
 
 
-class TestDiffReport:
+class TestDiffReport(unittest.TestCase):
     def test_diff_report_to_dict(self):
         report = DiffReport(
             compared_at="2025-01-01T00:00:00Z",
@@ -56,13 +55,13 @@ class TestDiffReport:
 
         data = report.to_dict()
 
-        assert data["compared_at"] == "2025-01-01T00:00:00Z"
-        assert data["environment_1"] == "dev"
-        assert data["environment_2"] == "prod"
-        assert len(data["details"]) == 1
+        self.assertEqual(data["compared_at"], "2025-01-01T00:00:00Z")
+        self.assertEqual(data["environment_1"], "dev")
+        self.assertEqual(data["environment_2"], "prod")
+        self.assertEqual(len(data["details"]), 1)
 
 
-class TestLoadConfig:
+class TestLoadConfig(unittest.TestCase):
     def test_load_from_file(self):
         config_data = {
             "environment": "dev",
@@ -75,37 +74,37 @@ class TestLoadConfig:
 
         with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
             json.dump(config_data, f)
-            config_path = Path(f.name)
+        config_path = Path(f.name)
 
         config = load_config(config_path, "dev")
 
-        assert config is not None
-        assert config.environment == "dev"
-        assert len(config.features) == 1
-        assert config.features[0].key == "test.feature"
+        self.assertIsNotNone(config)
+        self.assertEqual(config.environment, "dev")
+        self.assertEqual(len(config.features), 1)
+        self.assertEqual(config.features[0].key, "test.feature")
 
         config_path.unlink()
 
     def test_load_from_mock(self):
         config = load_config(None, "dev")
 
-        assert config is not None
-        assert config.environment == "dev"
-        assert len(config.features) > 0
+        self.assertIsNotNone(config)
+        self.assertEqual(config.environment, "dev")
+        self.assertTrue(len(config.features) > 0)
 
     def test_load_invalid_json(self):
         with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
             f.write("{invalid")
-            config_path = Path(f.name)
+        config_path = Path(f.name)
 
         config = load_config(config_path, "dev")
 
-        assert config is None
+        self.assertIsNone(config)
 
         config_path.unlink()
 
 
-class TestCompareConfigs:
+class TestCompareConfigs(unittest.TestCase):
     def test_no_difference(self):
         features = [FeatureFlag("test.feature", True, ())]
         config1 = ConfigExport("dev", "2025-01-01T00:00:00Z", tuple(features))
@@ -113,100 +112,104 @@ class TestCompareConfigs:
 
         report = compare_configs("dev", "prod", config1, config2)
 
-        assert len(report.summary["same"]) == 1
-        assert len(report.summary["added_in_env2"]) == 0
-        assert len(report.summary["removed_in_env2"]) == 0
-        assert len(report.summary["modified"]) == 0
-        assert len(report.details) == 0
+        self.assertEqual(len(report.summary["same"]), 1)
+        self.assertEqual(len(report.summary["added_in_env2"]), 0)
+        self.assertEqual(len(report.summary["removed_in_env2"]), 0)
+        self.assertEqual(len(report.summary["modified"]), 0)
+        self.assertEqual(len(report.details), 0)
 
     def test_feature_added(self):
-        config1 = ConfigExport("dev", "2025-01-01T00:00:00Z", 
-                               tuple([FeatureFlag("old.feature", True, ())]))
+        config1 = ConfigExport("dev", "2025-01-01T00:00:00Z",
+            tuple([FeatureFlag("old.feature", True, ())]))
         config2 = ConfigExport("prod", "2025-01-01T00:00:00Z",
-                               tuple([
-                                   FeatureFlag("old.feature", True, ()),
-                                   FeatureFlag("new.feature", True, ()),
-                               ]))
+            tuple([
+                FeatureFlag("old.feature", True, ()),
+                FeatureFlag("new.feature", True, ()),
+            ]))
 
         report = compare_configs("dev", "prod", config1, config2)
 
-        assert "new.feature" in report.summary["added_in_env2"]
-        assert "old.feature" in report.summary["same"]
+        self.assertIn("new.feature", report.summary["added_in_env2"])
+        self.assertIn("old.feature", report.summary["same"])
 
     def test_feature_removed(self):
         config1 = ConfigExport("dev", "2025-01-01T00:00:00Z",
-                               tuple([
-                                   FeatureFlag("old.feature", True, ()),
-                                   FeatureFlag("removed.feature", True, ()),
-                               ]))
+            tuple([
+                FeatureFlag("old.feature", True, ()),
+                FeatureFlag("removed.feature", True, ()),
+            ]))
         config2 = ConfigExport("prod", "2025-01-01T00:00:00Z",
-                               tuple([FeatureFlag("old.feature", True, ())]))
+            tuple([FeatureFlag("old.feature", True, ())]))
 
         report = compare_configs("dev", "prod", config1, config2)
 
-        assert "removed.feature" in report.summary["removed_in_env2"]
-        assert "old.feature" in report.summary["same"]
+        self.assertIn("removed.feature", report.summary["removed_in_env2"])
+        self.assertIn("old.feature", report.summary["same"])
 
     def test_feature_modified(self):
         config1 = ConfigExport("dev", "2025-01-01T00:00:00Z",
-                               tuple([FeatureFlag("test.feature", True, ())]))
+            tuple([FeatureFlag("test.feature", True, ())]))
         config2 = ConfigExport("prod", "2025-01-01T00:00:00Z",
-                               tuple([FeatureFlag("test.feature", False, ())]))
+            tuple([FeatureFlag("test.feature", False, ())]))
 
         report = compare_configs("dev", "prod", config1, config2)
 
-        assert "test.feature" in report.summary["modified"]
-        assert len(report.details) == 1
-        assert report.details[0].env1_value is True
-        assert report.details[0].env2_value is False
+        self.assertIn("test.feature", report.summary["modified"])
+        self.assertEqual(len(report.details), 1)
+        self.assertTrue(report.details[0].env1_value)
+        self.assertFalse(report.details[0].env2_value)
 
     def test_rules_changed(self):
         config1 = ConfigExport("dev", "2025-01-01T00:00:00Z",
-                               tuple([FeatureFlag("test.feature", True, ())]))
+            tuple([FeatureFlag("test.feature", True, ())]))
         config2 = ConfigExport("prod", "2025-01-01T00:00:00Z",
-                               tuple([FeatureFlag("test.feature", True,
-                                                       ({"if": {"plan": "pro"}, "value": True},))]))
+            tuple([FeatureFlag("test.feature", True,
+                ({"if": {"plan": "pro"}, "value": True},))]))
 
         report = compare_configs("dev", "prod", config1, config2)
 
-        assert "test.feature" in report.summary["modified"]
+        self.assertIn("test.feature", report.summary["modified"])
 
 
-class TestIsAllowedDrift:
+class TestIsAllowedDrift(unittest.TestCase):
     def test_exact_match(self):
-        assert is_allowed_drift("debug.feature", ["debug.*"])
-        assert is_allowed_drift("beta.test", ["beta.*"])
+        self.assertTrue(is_allowed_drift("debug.feature", ["debug.*"]))
+        self.assertTrue(is_allowed_drift("beta.test", ["beta.*"]))
 
     def test_no_match(self):
-        assert not is_allowed_drift("production.feature", ["debug.*"])
-        assert not is_allowed_drift("chat.view", ["debug.*"])
+        self.assertFalse(is_allowed_drift("production.feature", ["debug.*"]))
+        self.assertFalse(is_allowed_drift("chat.view", ["debug.*"]))
 
     def test_multiple_patterns(self):
-        assert is_allowed_drift("debug.feature", ["debug.*", "beta.*"])
-        assert is_allowed_drift("beta.feature", ["debug.*", "beta.*"])
-        assert not is_allowed_drift("other.feature", ["debug.*", "beta.*"])
+        self.assertTrue(is_allowed_drift("debug.feature", ["debug.*", "beta.*"]))
+        self.assertTrue(is_allowed_drift("beta.feature", ["debug.*", "beta.*"]))
+        self.assertFalse(is_allowed_drift("other.feature", ["debug.*", "beta.*"]))
 
     def test_empty_patterns(self):
-        assert not is_allowed_drift("any.feature", [])
+        self.assertFalse(is_allowed_drift("any.feature", []))
 
 
-class TestParseEntitlements:
+class TestParseEntitlements(unittest.TestCase):
     def test_single_entitlement(self):
         result = parse_entitlements("chat.view:true")
-        assert result == {"chat.view": True}
+        self.assertEqual(result, {"chat.view": True})
 
     def test_multiple_entitlements(self):
         result = parse_entitlements("chat.view:true,forms.advanced:false")
-        assert result == {"chat.view": True, "forms.advanced": False}
+        self.assertEqual(result, {"chat.view": True, "forms.advanced": False})
 
     def test_without_value(self):
         result = parse_entitlements("feature.flag")
-        assert result == {"feature.flag": True}
+        self.assertEqual(result, {"feature.flag": True})
 
     def test_numeric_true(self):
         result = parse_entitlements("flag:1")
-        assert result == {"flag": True}
+        self.assertEqual(result, {"flag": True})
 
     def test_empty_string(self):
         result = parse_entitlements("")
-        assert result == {}
+        self.assertEqual(result, {})
+
+
+if __name__ == "__main__":
+    unittest.main()
