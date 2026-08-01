@@ -2,18 +2,15 @@ import 'dart:ui';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:wrapper_app/app.dart';
 import 'package:wrapper_app/theme.dart';
 
-const _defaultEnvironmentFile = '.env';
 const _supabaseUrlKey = 'SUPABASE_URL';
 const _supabasePublishableKey = 'SUPABASE_PUBLISHABLE_KEY';
 const _legacySupabaseAnonKey = 'SUPABASE_ANON_KEY';
 
-typedef EnvironmentLoader =
-    Future<Map<String, String>> Function(String fileName);
+typedef EnvironmentLoader = Future<Map<String, String>> Function();
 typedef BackendInitializer = Future<void> Function(EnvironmentConfig config);
 typedef AppRunner = void Function(Widget app);
 typedef ErrorReporter = void Function(Object error, StackTrace stackTrace);
@@ -21,9 +18,8 @@ typedef ErrorReporter = void Function(Object error, StackTrace stackTrace);
 /// Loads configuration and initializes services before rendering the app.
 ///
 /// Dependencies are injectable so the startup sequence can be verified without
-/// connecting tests to Supabase or reading an asset bundle.
+/// connecting tests to Supabase or relying on compile-time definitions.
 Future<void> bootstrap({
-  String environmentFile = _defaultEnvironmentFile,
   EnvironmentLoader? loadEnvironment,
   BackendInitializer? initializeBackend,
   AppRunner run = runApp,
@@ -37,7 +33,7 @@ Future<void> bootstrap({
   }
 
   try {
-    final values = await (loadEnvironment ?? _loadEnvironment)(environmentFile);
+    final values = await (loadEnvironment ?? _loadEnvironment)();
     final config = EnvironmentConfig.fromEnvironment(values);
 
     await (initializeBackend ?? _initializeSupabase)(config);
@@ -48,10 +44,11 @@ Future<void> bootstrap({
   }
 }
 
-Future<Map<String, String>> _loadEnvironment(String fileName) async {
-  await dotenv.load(fileName: fileName);
-  return Map.unmodifiable(dotenv.env);
-}
+Future<Map<String, String>> _loadEnvironment() async => const {
+  _supabaseUrlKey: String.fromEnvironment(_supabaseUrlKey),
+  _supabasePublishableKey: String.fromEnvironment(_supabasePublishableKey),
+  _legacySupabaseAnonKey: String.fromEnvironment(_legacySupabaseAnonKey),
+};
 
 Future<void> _initializeSupabase(EnvironmentConfig config) async {
   await Supabase.initialize(

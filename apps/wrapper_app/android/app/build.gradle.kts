@@ -4,6 +4,20 @@ plugins {
     id("dev.flutter.flutter-gradle-plugin")
 }
 
+val releaseStoreFile = providers.gradleProperty("WRAPPER_RELEASE_STORE_FILE").orNull
+val releaseStorePassword = providers.gradleProperty("WRAPPER_RELEASE_STORE_PASSWORD").orNull
+val releaseKeyAlias = providers.gradleProperty("WRAPPER_RELEASE_KEY_ALIAS").orNull
+val releaseKeyPassword = providers.gradleProperty("WRAPPER_RELEASE_KEY_PASSWORD").orNull
+val releaseSigningValues =
+    listOf(releaseStoreFile, releaseStorePassword, releaseKeyAlias, releaseKeyPassword)
+val releaseSigningConfigured = releaseSigningValues.all { !it.isNullOrBlank() }
+
+require(releaseSigningValues.none { !it.isNullOrBlank() } || releaseSigningConfigured) {
+    "Release signing requires WRAPPER_RELEASE_STORE_FILE, " +
+        "WRAPPER_RELEASE_STORE_PASSWORD, WRAPPER_RELEASE_KEY_ALIAS, and " +
+        "WRAPPER_RELEASE_KEY_PASSWORD."
+}
+
 android {
     namespace = "com.portnumber53.wrapper_app"
     compileSdk = flutter.compileSdkVersion
@@ -25,11 +39,22 @@ android {
         versionName = flutter.versionName
     }
 
+    signingConfigs {
+        if (releaseSigningConfigured) {
+            create("release") {
+                storeFile = rootProject.file(requireNotNull(releaseStoreFile))
+                storePassword = releaseStorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
+            }
+        }
+    }
+
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+            if (releaseSigningConfigured) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
     }
 }

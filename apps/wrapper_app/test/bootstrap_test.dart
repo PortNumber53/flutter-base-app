@@ -61,8 +61,8 @@ void main() {
       Widget? renderedApp;
 
       await bootstrap(
-        loadEnvironment: (fileName) async {
-          events.add('load:$fileName');
+        loadEnvironment: () async {
+          events.add('load');
           return const {
             'SUPABASE_URL': 'https://example.supabase.co',
             'SUPABASE_PUBLISHABLE_KEY': 'publishable-key',
@@ -79,11 +79,7 @@ void main() {
         installErrorHandlers: false,
       );
 
-      expect(events, [
-        'load:.env',
-        'initialize:https://example.supabase.co',
-        'run',
-      ]);
+      expect(events, ['load', 'initialize:https://example.supabase.co', 'run']);
       expect(renderedApp, isA<App>());
     });
 
@@ -92,7 +88,7 @@ void main() {
       Widget? renderedApp;
 
       await bootstrap(
-        loadEnvironment: (_) async => throw StateError('sensitive-value'),
+        loadEnvironment: () async => throw StateError('sensitive-value'),
         run: (app) => renderedApp = app,
         reportError: (error, _) => reportedErrors.add(error),
         installErrorHandlers: false,
