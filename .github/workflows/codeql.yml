@@ -1,0 +1,87 @@
+name: CodeQL
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  schedule:
+    - cron: "23 4 * * 1"
+
+permissions:
+  contents: read
+  packages: read
+  security-events: write
+
+jobs:
+  analyze:
+    name: Analyze (${{ matrix.language }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - language: actions
+            build-mode: none
+            runner: ubuntu-latest
+          - language: python
+            build-mode: none
+            runner: ubuntu-latest
+          - language: java-kotlin
+            build-mode: manual
+            runner: ubuntu-latest
+          - language: swift
+            build-mode: manual
+            runner: macos-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up Java
+        if: matrix.language == 'java-kotlin'
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Flutter
+        if: matrix.language == 'java-kotlin' || matrix.language == 'swift'
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: 3.44.8
+          cache: true
+
+      - name: Resolve Flutter dependencies
+        if: matrix.language == 'java-kotlin' || matrix.language == 'swift'
+        working-directory: apps/wrapper_app
+        run: flutter pub get
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v4
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: ${{ matrix.build-mode }}
+
+      - name: Build Android for CodeQL
+        if: matrix.language == 'java-kotlin'
+        working-directory: apps/wrapper_app
+        run: flutter build apk --debug
+
+      - name: Build iOS for CodeQL
+        if: matrix.language == 'swift'
+        working-directory: apps/wrapper_app/ios
+        run: |
+          xcodebuild clean build \
+            -workspace Runner.xcworkspace \
+            -scheme Runner \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            COMPILATION_CACHE_ENABLE_CACHING=NO \
+            SWIFT_ENABLE_COMPILE_CACHE=NO \
+            SWIFT_USE_INTEGRATED_DRIVER=NO
+
+      - name: Perform CodeQL analysis
+        uses: github/codeql-action/analyze@v4
